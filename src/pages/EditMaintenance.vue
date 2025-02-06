@@ -36,7 +36,7 @@
                                     v-model="affectedMonitors"
                                     :options="affectedMonitorsOptions"
                                     track-by="id"
-                                    label="name"
+                                    label="pathName"
                                     :multiple="true"
                                     :close-on-select="false"
                                     :clear-on-select="false"
@@ -246,13 +246,10 @@
 </template>
 
 <script>
-import { useToast } from "vue-toastification";
 import VueMultiselect from "vue-multiselect";
 import Datepicker from "@vuepic/vue-datepicker";
 import { timezoneList } from "../util-frontend";
 import cronstrue from "cronstrue/i18n";
-
-const toast = useToast();
 
 export default {
     components: {
@@ -381,21 +378,46 @@ export default {
         },
     },
     mounted() {
-        this.init();
-
         this.$root.getMonitorList((res) => {
             if (res.ok) {
-                Object.values(this.$root.monitorList).map(monitor => {
+                Object.values(this.$root.monitorList).sort((m1, m2) => {
+
+                    if (m1.active !== m2.active) {
+                        if (m1.active === 0) {
+                            return 1;
+                        }
+
+                        if (m2.active === 0) {
+                            return -1;
+                        }
+                    }
+
+                    if (m1.weight !== m2.weight) {
+                        if (m1.weight > m2.weight) {
+                            return -1;
+                        }
+
+                        if (m1.weight < m2.weight) {
+                            return 1;
+                        }
+                    }
+
+                    return m1.pathName.localeCompare(m2.pathName);
+                }).map(monitor => {
                     this.affectedMonitorsOptions.push({
                         id: monitor.id,
-                        name: monitor.name,
+                        pathName: monitor.pathName,
                     });
                 });
             }
+            this.init();
         });
     },
     methods: {
-        /** Initialise page */
+        /**
+         * Initialise page
+         * @returns {void}
+         */
         init() {
             this.affectedMonitors = [];
             this.selectedStatusPages = [];
@@ -429,10 +451,10 @@ export default {
                         this.$root.getSocket().emit("getMonitorMaintenance", this.$route.params.id, (res) => {
                             if (res.ok) {
                                 Object.values(res.monitors).map(monitor => {
-                                    this.affectedMonitors.push(monitor);
+                                    this.affectedMonitors.push(this.affectedMonitorsOptions.find(item => item.id === monitor.id));
                                 });
                             } else {
-                                toast.error(res.msg);
+                                this.$root.toastError(res.msg);
                             }
                         });
 
@@ -447,22 +469,25 @@ export default {
 
                                 this.showOnAllPages = Object.values(res.statusPages).length === this.selectedStatusPagesOptions.length;
                             } else {
-                                toast.error(res.msg);
+                                this.$root.toastError(res.msg);
                             }
                         });
                     } else {
-                        toast.error(res.msg);
+                        this.$root.toastError(res.msg);
                     }
                 });
             }
         },
 
-        /** Create new maintenance */
+        /**
+         * Create new maintenance
+         * @returns {Promise<void>}
+         */
         async submit() {
             this.processing = true;
 
             if (this.affectedMonitors.length === 0) {
-                toast.error(this.$t("atLeastOneMonitor"));
+                this.$root.toastError(this.$t("atLeastOneMonitor"));
                 return this.processing = false;
             }
 
@@ -471,14 +496,14 @@ export default {
                     if (res.ok) {
                         await this.addMonitorMaintenance(res.maintenanceID, async () => {
                             await this.addMaintenanceStatusPage(res.maintenanceID, () => {
-                                toast.success(res.msg);
+                                this.$root.toastRes(res);
                                 this.processing = false;
                                 this.$root.getMaintenanceList();
                                 this.$router.push("/maintenance");
                             });
                         });
                     } else {
-                        toast.error(res.msg);
+                        this.$root.toastRes(res);
                         this.processing = false;
                     }
 
@@ -496,7 +521,7 @@ export default {
                         });
                     } else {
                         this.processing = false;
-                        toast.error(res.msg);
+                        this.$root.toastError(res.msg);
                     }
                 });
             }
@@ -504,13 +529,14 @@ export default {
 
         /**
          * Add monitor to maintenance
-         * @param {number} maintenanceID
-         * @param {socketCB} callback
+         * @param {number} maintenanceID ID of maintenance to modify
+         * @param {socketCB} callback Callback for socket response
+         * @returns {Promise<void>}
          */
         async addMonitorMaintenance(maintenanceID, callback) {
             await this.$root.addMonitorMaintenance(maintenanceID, this.affectedMonitors, async (res) => {
                 if (!res.ok) {
-                    toast.error(res.msg);
+                    this.$root.toastError(res.msg);
                 } else {
                     this.$root.getMonitorList();
                 }
@@ -521,13 +547,14 @@ export default {
 
         /**
          * Add status page to maintenance
-         * @param {number} maintenanceID
-         * @param {socketCB} callback
+         * @param {number} maintenanceID ID of maintenance to modify
+         * @param {socketCB} callback Callback for socket response
+         * @returns {void}
          */
         async addMaintenanceStatusPage(maintenanceID, callback) {
             await this.$root.addMaintenanceStatusPage(maintenanceID, (this.showOnAllPages) ? this.selectedStatusPagesOptions : this.selectedStatusPages, async (res) => {
                 if (!res.ok) {
-                    toast.error(res.msg);
+                    this.$root.toastError(res.msg);
                 } else {
                     this.$root.getMaintenanceList();
                 }
